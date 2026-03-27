@@ -21,11 +21,11 @@ telegram-webhook (Edge Function)
     │      ↓
     │  Generate query embedding (OpenAI text-embedding-3-small)
     │      ↓
-    │  match_memories() — cosine similarity search (threshold 0.3)
+    │  match_memories() — cosine similarity search (threshold 0.3, up to 100)
     │      ↓
-    │  Synthesize answer (GPT-4o-mini)
+    │  Sort by capture time (chronological)
     │      ↓
-    │  Reply via Telegram sendMessage
+    │  Reply as bullet points via Telegram sendMessage
     │
     └─ regular message
            ↓
@@ -287,7 +287,7 @@ supabase/functions/telegram-webhook/index.ts
 - Stores `chat_id`, `user_id`, and `username` in the `metadata` jsonb column
 - Verifies `X-Telegram-Bot-Api-Secret-Token` header if `TELEGRAM_SECRET_TOKEN` secret is set
 - Non-text messages (photos, stickers, etc.) return `200 OK` silently — Telegram requires a 200 response or it will retry
-- Handles `/search <query>` command: generates a query embedding, calls `match_memories()` with threshold `0.3` and up to 10 results, then feeds matched memories to `gpt-4o-mini` which synthesizes a fluent answer — the bot replies with that answer, not a raw list
+- Handles `/search <query>` command: generates a query embedding, calls `match_memories()` with threshold `0.3` and up to 100 results sorted by capture time, and replies with each matching memory as a bullet point
 
 Deploy function.
 
@@ -458,9 +458,9 @@ Once the system is running, send a `/search` query to your bot from Telegram:
 **What happens:**
 
 1. The bot generates an embedding for your query
-2. `match_memories()` finds the top 10 most semantically similar memories (cosine similarity ≥ 0.3)
-3. Those memories are passed to `gpt-4o-mini` with a synthesis prompt
-4. The bot replies with a fluent, natural-language answer combining all relevant memories
+2. `match_memories()` finds all semantically similar memories (cosine similarity ≥ 0.3, up to 100 results)
+3. Results are sorted by the time you captured them (oldest first)
+4. The bot replies with each matching memory as a bullet point
 
 **Example:**
 
@@ -468,9 +468,10 @@ Query: `/search attendance sync`
 
 Reply:
 ```
-Ravi suggested implementing offline attendance sync as a fallback for
-classrooms without internet. The discussion included a plan to queue
-sync events locally and push them when connectivity is restored.
+2 memories found for "attendance sync":
+
+• Ravi suggested offline attendance sync
+• Need to queue sync events locally and push when connectivity is restored
 ```
 
 If no memories match the threshold, the bot replies:
@@ -495,8 +496,8 @@ Try rephrasing — search finds meaning, not exact words.
 | Non-text Telegram updates | Returned error | Returns `200 OK` silently |
 | Cascade delete | No `on delete cascade` | Added to `embedding_jobs.memory_id` |
 | Semantic search | Not included | `brain.match_memories()` function added |
-| Search threshold too strict | `match_threshold: 0.5` silently dropped real matches | Lowered to `0.3`, increased result cap to 10 |
-| Raw search results | Returned a numbered list with scores | GPT-4o-mini synthesizes a fluent answer |
+| Search threshold too strict | `match_threshold: 0.5` silently dropped real matches | Lowered to `0.3`, cap raised to 100 |
+| Search result format | Numbered list with similarity scores | Bullet points in chronological capture order |
 
 ---
 

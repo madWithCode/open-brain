@@ -20,7 +20,7 @@ A second brain is a personal knowledge system — a place where your thoughts, i
 - **Capture**: Send a message to your Telegram bot. Done.
 - **Store**: The message is saved to a PostgreSQL database with pgvector.
 - **Embed**: OpenAI generates a semantic embedding (vector) for the message.
-- **Search**: Type `/search memory about project X` and get back the most relevant memories ranked by similarity.
+- **Search**: Type `/search memory about project X` and get back all matching memories as bullet points in the order you captured them.
 
 ---
 
@@ -43,7 +43,7 @@ You → Telegram message
          ↓
   /search query → same embedding pipeline → match_memories()
          ↓
-  Top 5 most similar memories sent back via Telegram
+  All matching memories returned as bullet points (chronological order)
 ```
 
 ---
@@ -51,7 +51,7 @@ You → Telegram message
 ## Features
 
 - **Capture via Telegram** — no app, no friction, works from your phone
-- **Semantic search with AI synthesis** — `/search` finds memories by meaning and returns a fluent GPT-written answer, not a raw list
+- **Semantic search** — `/search` finds memories by meaning and returns them as bullet points in the order you captured them
 - **pgvector similarity** — cosine distance search over 1536-dimension OpenAI embeddings
 - **Async embedding queue** — webhook responds instantly; embeddings processed in background
 - **Auto-retry** — failed embedding jobs retry up to 3 times before marking as failed
@@ -211,12 +211,14 @@ Meeting notes: discussed Q2 roadmap with Sarah
 /search things Sarah said
 ```
 
-The bot replies with a fluent, synthesized answer written by GPT-4o-mini using your matching memories as context:
+The bot replies with all matching memories as bullet points in the order you captured them:
 
 ```
-The Q2 roadmap was discussed with Sarah, who wants to prioritize the
-mobile launch in April. The plan covers the key milestones agreed on
-in that meeting.
+3 memories found for "Q2 roadmap":
+
+• Meeting notes: discussed Q2 roadmap with Sarah
+• Sarah wants to prioritize the mobile launch in April
+• Q2 key milestones agreed — finalize by end of month
 ```
 
 ---

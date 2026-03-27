@@ -49,26 +49,26 @@ serve(async (req) => {
 
       const results = await searchMemories(query);
       if (!results || results.length === 0) {
-        await sendTelegramMessage(chatId, `No memories found for: "${query}"\n\nTry rephrasing — search finds meaning, not exact words.`);
+        await sendTelegramMessage(
+          chatId,
+          `No memories found for: "${query}"\n\nTry rephrasing — search finds meaning, not exact words.`,
+        );
         return new Response("OK");
       }
-      const answer = await synthesizeAnswer(query, results);
+      const answer = formatResults(query, results);
       await sendTelegramMessage(chatId, answer);
       return new Response("OK");
     }
 
     // Store message as memory
-    const insertMemoryRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/memories`,
-      {
-        method: "POST",
-        headers: { ...BRAIN_WRITE_HEADERS, Prefer: "return=representation" },
-        body: JSON.stringify({
-          content: message,
-          metadata: { chat_id: chatId, user_id: userId, username },
-        }),
-      },
-    );
+    const insertMemoryRes = await fetch(`${SUPABASE_URL}/rest/v1/memories`, {
+      method: "POST",
+      headers: { ...BRAIN_WRITE_HEADERS, Prefer: "return=representation" },
+      body: JSON.stringify({
+        content: message,
+        metadata: { chat_id: chatId, user_id: userId, username },
+      }),
+    });
 
     if (!insertMemoryRes.ok) {
       const err = await insertMemoryRes.text();
@@ -84,14 +84,11 @@ serve(async (req) => {
     }
 
     // Queue embedding job
-    const queueRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/embedding_jobs`,
-      {
-        method: "POST",
-        headers: BRAIN_WRITE_HEADERS,
-        body: JSON.stringify({ memory_id: memory[0].id }),
-      },
-    );
+    const queueRes = await fetch(`${SUPABASE_URL}/rest/v1/embedding_jobs`, {
+      method: "POST",
+      headers: BRAIN_WRITE_HEADERS,
+      body: JSON.stringify({ memory_id: memory[0].id }),
+    });
 
     if (!queueRes.ok) {
       console.error("Embedding job queue failed:", await queueRes.text());
@@ -124,23 +121,20 @@ async function searchMemories(query: string) {
   const queryEmbedding = data[0].embedding;
 
   // Call match_memories RPC in the brain schema
-  const searchRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/rpc/match_memories`,
-    {
-      method: "POST",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        "Content-Profile": "brain",
-      },
-      body: JSON.stringify({
-        query_embedding: queryEmbedding,
-        match_threshold: 0.3,
-        match_count: 10,
-      }),
+  const searchRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/match_memories`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      "Content-Profile": "brain",
     },
-  );
+    body: JSON.stringify({
+      query_embedding: queryEmbedding,
+      match_threshold: 0.3,
+      match_count: 100,
+    }),
+  });
 
   if (!searchRes.ok) {
     throw new Error(`Search failed: ${await searchRes.text()}`);
@@ -149,41 +143,15 @@ async function searchMemories(query: string) {
   return await searchRes.json();
 }
 
-async function synthesizeAnswer(
-  query: string,
-  results: { content: string; similarity: number }[],
-): Promise<string> {
-  const memoriesText = results.map((r) => `- ${r.content}`).join("\n");
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a personal knowledge assistant. The user is searching their own memory notes. Using only the memories provided, write a concise, fluent summary that answers the query. Do not mention similarity scores or that you are reading notes.",
-        },
-        {
-          role: "user",
-          content: `Query: ${query}\n\nMemories:\n${memoriesText}`,
-        },
-      ],
-      max_tokens: 400,
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`GPT error: ${await res.text()}`);
+function formatResults(query: string, results: { content: string }[]): string {
+  const header = `${results.length} ${results.length === 1 ? "memory" : "memories"} found for "${query}":\n\n`;
+  const bullets = results.map((r) => `• ${r.content}`).join("\n");
+  const reply = header + bullets;
+  // Telegram max message length is 4096 chars
+  if (reply.length > 4096) {
+    return reply.slice(0, 4050) + "\n\n…(truncated)";
   }
-
-  const json = await res.json();
-  return json.choices[0].message.content.trim();
+  return reply;
 }
 
 async function sendTelegramMessage(chatId: number, text: string) {

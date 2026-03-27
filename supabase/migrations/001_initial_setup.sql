@@ -46,15 +46,16 @@ grant all on brain.embedding_jobs to service_role;
 -- Step 8: Create semantic search function
 create or replace function brain.match_memories(
   query_embedding vector(1536),
-  match_threshold float default 0.7,
-  match_count int default 10
+  match_threshold float default 0.3,
+  match_count int default 100
 )
 returns table (
   id uuid,
   content text,
   category text,
   metadata jsonb,
-  similarity float
+  similarity float,
+  created_at timestamp
 )
 language sql stable
 as $$
@@ -63,10 +64,11 @@ as $$
     m.content,
     m.category,
     m.metadata,
-    1 - (m.embedding <=> query_embedding) as similarity
+    1 - (m.embedding <=> query_embedding) as similarity,
+    m.created_at
   from brain.memories m
   where m.embedding is not null
     and 1 - (m.embedding <=> query_embedding) > match_threshold
-  order by m.embedding <=> query_embedding
+  order by m.created_at asc
   limit match_count;
 $$;
