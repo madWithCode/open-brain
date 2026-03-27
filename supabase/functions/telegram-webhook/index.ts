@@ -48,7 +48,12 @@ serve(async (req) => {
       }
 
       const results = await searchMemories(query);
-      await sendTelegramMessage(chatId, formatSearchResults(query, results));
+      if (!results || results.length === 0) {
+        await sendTelegramMessage(chatId, `No memories found for: "${query}"\n\nTry rephrasing — search finds meaning, not exact words.`);
+        return new Response("OK");
+      }
+      const answer = await synthesizeAnswer(query, results);
+      await sendTelegramMessage(chatId, answer);
       return new Response("OK");
     }
 
@@ -131,8 +136,8 @@ async function searchMemories(query: string) {
       },
       body: JSON.stringify({
         query_embedding: queryEmbedding,
-        match_threshold: 0.5,
-        match_count: 5,
+        match_threshold: 0.3,
+        match_count: 10,
       }),
     },
   );
@@ -144,20 +149,41 @@ async function searchMemories(query: string) {
   return await searchRes.json();
 }
 
-function formatSearchResults(
+async function synthesizeAnswer(
   query: string,
   results: { content: string; similarity: number }[],
-): string {
-  if (!results || results.length === 0) {
-    return `No memories found for: "${query}"`;
-  }
+): Promise<string> {
+  const memoriesText = results.map((r) => `- ${r.content}`).join("\n");
 
-  const lines = results.map((r, i) => {
-    const score = Math.round(r.similarity * 100);
-    return `${i + 1}. (${score}% match)\n${r.content}`;
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a personal knowledge assistant. The user is searching their own memory notes. Using only the memories provided, write a concise, fluent summary that answers the query. Do not mention similarity scores or that you are reading notes.",
+        },
+        {
+          role: "user",
+          content: `Query: ${query}\n\nMemories:\n${memoriesText}`,
+        },
+      ],
+      max_tokens: 400,
+    }),
   });
 
-  return `Search: "${query}"\n\n${lines.join("\n\n")}`;
+  if (!res.ok) {
+    throw new Error(`GPT error: ${await res.text()}`);
+  }
+
+  const json = await res.json();
+  return json.choices[0].message.content.trim();
 }
 
 async function sendTelegramMessage(chatId: number, text: string) {

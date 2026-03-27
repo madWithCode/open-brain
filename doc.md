@@ -2,10 +2,10 @@
 
 This document provides a **clear, end-to-end setup process** for building a Telegram-based AI memory capture system using:
 
-- Telegram Bot (input interface)
+- Telegram Bot (input interface + `/search` command)
 - Supabase Edge Functions (backend processing)
 - PostgreSQL + pgvector (semantic storage)
-- OpenAI embeddings (vector generation)
+- OpenAI embeddings (vector generation) + GPT-4o-mini (answer synthesis)
 
 The architecture is optimized for **Supabase free tier usage** and designed to be reliable, scalable, and agent-ready.
 
@@ -17,18 +17,27 @@ The architecture is optimized for **Supabase free tier usage** and designed to b
 Telegram message
     ↓
 telegram-webhook (Edge Function)
-    ↓
-Insert raw memory + store chat metadata
-    ↓
-Queue embedding job
-    ↓
-process-embeddings (Edge Function)
-    ↓
-Generate embeddings (OpenAI text-embedding-3-small)
-    ↓
-Store enriched memory + mark job completed
-    ↓
-Semantic search via match_memories()
+    ├─ /search <query>
+    │      ↓
+    │  Generate query embedding (OpenAI text-embedding-3-small)
+    │      ↓
+    │  match_memories() — cosine similarity search (threshold 0.3)
+    │      ↓
+    │  Synthesize answer (GPT-4o-mini)
+    │      ↓
+    │  Reply via Telegram sendMessage
+    │
+    └─ regular message
+           ↓
+       Insert raw memory + store chat metadata
+           ↓
+       Queue embedding job
+           ↓
+       process-embeddings (Edge Function, runs every minute via Cron)
+           ↓
+       Generate embeddings (OpenAI text-embedding-3-small)
+           ↓
+       Store enriched memory + mark job completed
 ```
 
 ---
@@ -247,10 +256,11 @@ Project Settings → Edge Functions → Secrets
 Add:
 
 ```
-SUPABASE_URL
-SUPABASE_ANON_KEY
-OPENAI_API_KEY
-TELEGRAM_SECRET_TOKEN   ← recommended: any random string you choose
+SUPABASE_URL             ← Project Settings → API → Project URL
+SUPABASE_ANON_KEY        ← Project Settings → API → anon key
+OPENAI_API_KEY           ← platform.openai.com → API Keys
+TELEGRAM_BOT_TOKEN       ← from @BotFather → /mybots → API Token
+TELEGRAM_SECRET_TOKEN    ← any random string (openssl rand -hex 32)
 ```
 
 `TELEGRAM_SECRET_TOKEN` is sent by Telegram with every webhook request and verified by the Edge Function to reject forged requests.
@@ -277,6 +287,7 @@ supabase/functions/telegram-webhook/index.ts
 - Stores `chat_id`, `user_id`, and `username` in the `metadata` jsonb column
 - Verifies `X-Telegram-Bot-Api-Secret-Token` header if `TELEGRAM_SECRET_TOKEN` secret is set
 - Non-text messages (photos, stickers, etc.) return `200 OK` silently — Telegram requires a 200 response or it will retry
+- Handles `/search <query>` command: generates a query embedding, calls `match_memories()` with threshold `0.3` and up to 10 results, then feeds matched memories to `gpt-4o-mini` which synthesizes a fluent answer — the bot replies with that answer, not a raw list
 
 Deploy function.
 
@@ -430,7 +441,46 @@ metadata  → { "chat_id": 123, "user_id": 456, "username": "ravi" }
 category  → null (ready for classification)
 ```
 
-Your AI memory capture pipeline is now operational.
+Your AI memory capture pipeline is now fully operational with semantic search and AI-synthesized answers.
+
+---
+
+# STEP 18 — Using the /search Command
+
+Once the system is running, send a `/search` query to your bot from Telegram:
+
+```
+/search attendance sync
+/search what did Ravi suggest
+/search project deadline notes
+```
+
+**What happens:**
+
+1. The bot generates an embedding for your query
+2. `match_memories()` finds the top 10 most semantically similar memories (cosine similarity ≥ 0.3)
+3. Those memories are passed to `gpt-4o-mini` with a synthesis prompt
+4. The bot replies with a fluent, natural-language answer combining all relevant memories
+
+**Example:**
+
+Query: `/search attendance sync`
+
+Reply:
+```
+Ravi suggested implementing offline attendance sync as a fallback for
+classrooms without internet. The discussion included a plan to queue
+sync events locally and push them when connectivity is restored.
+```
+
+If no memories match the threshold, the bot replies:
+```
+No memories found for: "attendance sync"
+
+Try rephrasing — search finds meaning, not exact words.
+```
+
+> **Note:** Search uses semantic similarity, not keyword matching. "meeting about database" may match a memory that says "discussed schema design with the team" — even without shared words.
 
 ---
 
@@ -445,6 +495,8 @@ Your AI memory capture pipeline is now operational.
 | Non-text Telegram updates | Returned error | Returns `200 OK` silently |
 | Cascade delete | No `on delete cascade` | Added to `embedding_jobs.memory_id` |
 | Semantic search | Not included | `brain.match_memories()` function added |
+| Search threshold too strict | `match_threshold: 0.5` silently dropped real matches | Lowered to `0.3`, increased result cap to 10 |
+| Raw search results | Returned a numbered list with scores | GPT-4o-mini synthesizes a fluent answer |
 
 ---
 
@@ -452,10 +504,8 @@ Your AI memory capture pipeline is now operational.
 
 Optional upgrades:
 
-- metadata extraction with GPT (category, tags, entities)
-- Telegram `/search` command using `match_memories()`
-- weekly digest summaries
-- MCP-compatible retrieval API
-- Re-enable RLS with user-scoped policies
-
-These convert the system into a fully agent-readable knowledge memory layer.
+- Metadata extraction with GPT (auto-category, tags, entities)
+- Weekly digest summaries sent via Telegram
+- MCP-compatible retrieval API (expose memories to AI agents)
+- Re-enable RLS with user-scoped policies for multi-user support
+- Web dashboard to browse and manage memories

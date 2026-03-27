@@ -51,7 +51,7 @@ You → Telegram message
 ## Features
 
 - **Capture via Telegram** — no app, no friction, works from your phone
-- **Semantic search** — `/search` finds memories by meaning, not just keywords
+- **Semantic search with AI synthesis** — `/search` finds memories by meaning and returns a fluent GPT-written answer, not a raw list
 - **pgvector similarity** — cosine distance search over 1536-dimension OpenAI embeddings
 - **Async embedding queue** — webhook responds instantly; embeddings processed in background
 - **Auto-retry** — failed embedding jobs retry up to 3 times before marking as failed
@@ -211,16 +211,12 @@ Meeting notes: discussed Q2 roadmap with Sarah
 /search things Sarah said
 ```
 
-The bot replies with the top 5 most semantically similar memories, ranked by match percentage:
+The bot replies with a fluent, synthesized answer written by GPT-4o-mini using your matching memories as context:
 
 ```
-Search: "Q2 roadmap"
-
-1. (87% match)
-Meeting notes: discussed Q2 roadmap with Sarah
-
-2. (71% match)
-Sarah wants to prioritize the mobile launch in April
+The Q2 roadmap was discussed with Sarah, who wants to prioritize the
+mobile launch in April. The plan covers the key milestones agreed on
+in that meeting.
 ```
 
 ---
