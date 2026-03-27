@@ -273,6 +273,3 @@ Ideas for contribution:
 ## License
 
 [MIT](LICENSE) — free to use, modify, and distribute.
-#   o p e n - b r a i n  
- #   o p e n - b r a i n  
- 
